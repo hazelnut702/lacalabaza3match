@@ -136,6 +136,7 @@
       const soundIcon = soundButton.querySelector('.sound-icon');
       const soundLabel = document.getElementById('soundLabel');
       let grid = [], selected = null, score = 0, level = 1, levelScore = 0, moves = 20, locked = false;
+      let gesture = null, suppressClickUntil = 0;
       const goalForLevel = value => 350 + value * 150;
       const movesForLevel = value => Math.max(12, 20 - Math.floor((value - 1) / 2));
       function updateMusicButton() {
@@ -190,7 +191,10 @@
           } else {
             piece.textContent = kinds[grid[r][c]];
           }
-          tile.append(piece); tile.addEventListener('click', () => tap(r, c));
+          tile.append(piece); tile.addEventListener('click', event => {
+            if (event.detail > 0 && Date.now() < suppressClickUntil) return;
+            tap(r, c);
+          });
           boardEl.append(tile);
         }
         scoreEl.textContent = score;
@@ -294,6 +298,32 @@
         }
         locked = false;
       }
+      boardEl.addEventListener('pointerdown', event => {
+        const tile = event.target.closest('.tile');
+        if (!tile || (event.button !== undefined && event.button !== 0)) return;
+        gesture = {
+          pointerId: event.pointerId,
+          r: Number(tile.dataset.r),
+          c: Number(tile.dataset.c),
+          x: event.clientX,
+          y: event.clientY
+        };
+      });
+      document.addEventListener('pointerup', event => {
+        if (!gesture || event.pointerId !== gesture.pointerId) return;
+        const start = gesture;
+        gesture = null;
+        if (Math.hypot(event.clientX - start.x, event.clientY - start.y) < 22) return;
+        const endTile = document.elementFromPoint(event.clientX, event.clientY)?.closest('.tile');
+        if (!endTile) return;
+        const r = Number(endTile.dataset.r), c = Number(endTile.dataset.c);
+        if (Math.abs(start.r - r) + Math.abs(start.c - c) !== 1) return;
+        suppressClickUntil = Date.now() + 500;
+        selected = { r: start.r, c: start.c };
+        render();
+        tap(r, c);
+      });
+      document.addEventListener('pointercancel', () => { gesture = null; });
       function reset() { score = 0; level = 1; levelScore = 0; moves = movesForLevel(level); selected = null; locked = false; hintEl.textContent = 'Intercambia dos piezas vecinas. ¡Junta 3 o más!'; makeGrid(); render(); }
       document.getElementById('restart').addEventListener('click', reset);
       soundButton.addEventListener('click', () => {
