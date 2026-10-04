@@ -132,7 +132,7 @@
     <section class="stats" aria-label="Marcador">
       <div class="stat"><label>Puntos</label><strong id="score">0</strong></div>
       <div class="stat"><label>Nivel</label><strong id="level">1</strong></div>
-      <div class="stat"><label>Turnos</label><strong id="moves">20</strong></div>
+      <div class="stat"><label>Turnos</label><strong id="moves">0</strong></div>
       <div class="stat"><label>Récord</label><strong id="best">0</strong></div>
     </section>
     <section class="board-wrap" aria-label="Tablero de juego"><div class="board-stage"><div id="board" role="grid" aria-label="Jardín de 7 por 7"></div><div class="level-pop" id="levelPop" aria-live="polite" aria-atomic="true">TQADT ❤️</div></div></section>
@@ -167,14 +167,13 @@
       const soundLabel = document.getElementById('soundLabel');
       const levelPop = document.getElementById('levelPop');
       const levelChants = ['TQADT ❤️', 'YTQA ❤️', 'APETECE ❤️'];
-      let grid = [], selected = null, score = 0, level = 1, levelScore = 0, moves = 20, locked = false;
+      let grid = [], selected = null, score = 0, level = 1, levelScore = 0, moves = 0, locked = false;
       let gesture = null, suppressClickUntil = 0;
       let levelCelebrations = 0, celebrationRunning = false;
       let lastLevelChant = -1;
       let musicEnabled = localStorage.getItem('calabaza-music-enabled') !== 'off';
       let musicPausedForBackground = false;
       const goalForLevel = value => 350 + value * 150;
-      const movesForLevel = value => Math.max(12, 20 - Math.floor((value - 1) / 2));
       function updateMusicButton() {
         soundIcon.textContent = musicEnabled ? '♪' : '♫';
         soundLabel.textContent = musicEnabled ? 'Música activada' : 'Música desactivada';
@@ -336,7 +335,7 @@
           while (levelScore >= goalForLevel(level)) {
             levelScore -= goalForLevel(level);
             level++;
-            moves = movesForLevel(level);
+            moves = 0;
             hintEl.textContent = `¡Nivel ${level}! Ahora hacen falta más puntos`;
             showLevelCelebration();
           }
@@ -377,13 +376,9 @@
         locked = true; swap(a, b); render(); await wait(110);
         if (!findMatches().size) { swap(a, b); render(); await wait(120); }
         else {
-          moves--; render(); await clearMatches();
+          moves++; render(); await clearMatches();
           const best = Math.max(score, Number(localStorage.getItem('calabaza-best') || 0));
           saveBest(best);
-          if (moves <= 0) {
-            moves = 5;
-            hintEl.textContent = '¡Turnos extra! Sigue combinando para avanzar';
-          }
           render();
         }
         locked = false;
@@ -414,7 +409,7 @@
         tap(r, c);
       });
       document.addEventListener('pointercancel', () => { gesture = null; });
-      function reset() { score = 0; level = 1; levelScore = 0; moves = movesForLevel(level); selected = null; locked = false; hintEl.textContent = 'Intercambia dos piezas vecinas. ¡Junta 3 o más!'; makeGrid(); render(); }
+      function reset() { score = 0; level = 1; levelScore = 0; moves = 0; selected = null; locked = false; hintEl.textContent = 'Intercambia dos piezas vecinas. ¡Junta 3 o más!'; makeGrid(); render(); }
       document.getElementById('restart').addEventListener('click', reset);
       soundButton.addEventListener('click', () => {
         musicEnabled = !musicEnabled;

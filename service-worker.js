@@ -1,4 +1,4 @@
-const CACHE_NAME = 'la-calabaza-v10';
+const CACHE_NAME = 'la-calabaza-v11';
 const APP_SHELL = [
   './',
   './index.html',
