@@ -172,6 +172,7 @@
       let levelCelebrations = 0, celebrationRunning = false;
       let lastLevelChant = -1;
       let musicEnabled = localStorage.getItem('calabaza-music-enabled') !== 'off';
+      let musicPausedForBackground = false;
       const goalForLevel = value => 350 + value * 150;
       const movesForLevel = value => Math.max(12, 20 - Math.floor((value - 1) / 2));
       function updateMusicButton() {
@@ -186,6 +187,16 @@
         music.play().then(() => {
           updateMusicButton();
         }).catch(updateMusicButton);
+      }
+      function pauseMusicForBackground() {
+        if (!musicEnabled) return;
+        musicPausedForBackground = true;
+        music.pause();
+      }
+      function resumeMusicFromBackground() {
+        const shouldResume = musicPausedForBackground && musicEnabled;
+        musicPausedForBackground = false;
+        if (shouldResume) startMusic();
       }
       function showLevelCelebration() {
         levelCelebrations++;
@@ -207,6 +218,12 @@
       }
       music.addEventListener('play', updateMusicButton);
       music.addEventListener('pause', updateMusicButton);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) pauseMusicForBackground();
+        else resumeMusicFromBackground();
+      });
+      window.addEventListener('pagehide', pauseMusicForBackground);
+      window.addEventListener('pageshow', resumeMusicFromBackground);
       // iOS copies first-party cookies into a newly added Home Screen app, but it
       // deliberately keeps localStorage separate. Mirror the record into a cookie
       // so the standalone app can import it on its first launch.
@@ -403,7 +420,10 @@
         musicEnabled = !musicEnabled;
         localStorage.setItem('calabaza-music-enabled', musicEnabled ? 'on' : 'off');
         if (musicEnabled) startMusic();
-        else music.pause();
+        else {
+          musicPausedForBackground = false;
+          music.pause();
+        }
         updateMusicButton();
       });
       updateMusicButton();
@@ -414,11 +434,21 @@
   <script>
     // A service worker makes the installed game launch reliably without a connection.
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+      let reloadingForServiceWorker = false;
+      const checkForServiceWorkerUpdate = () => {
         navigator.serviceWorker.register('./service-worker.js')
           // Ask for an update on every online app launch instead of waiting for a browser interval.
           .then(registration => registration.update())
           .catch(() => {});
+      };
+      window.addEventListener('load', checkForServiceWorkerUpdate);
+      // iOS may restore a suspended Home Screen app rather than reloading it.
+      window.addEventListener('pageshow', event => { if (event.persisted) checkForServiceWorkerUpdate(); });
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!reloadingForServiceWorker) {
+          reloadingForServiceWorker = true;
+          window.location.reload();
+        }
       });
     }
 
