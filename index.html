@@ -223,23 +223,60 @@
       });
       window.addEventListener('pagehide', pauseMusicForBackground);
       window.addEventListener('pageshow', resumeMusicFromBackground);
+      window.addEventListener('pagehide', () => saveProgress());
+      document.addEventListener('visibilitychange', () => { if (document.hidden) saveProgress(); });
       // iOS copies first-party cookies into a newly added Home Screen app, but it
-      // deliberately keeps localStorage separate. Mirror the record into a cookie
-      // so the standalone app can import it on its first launch.
+      // deliberately keeps localStorage separate. Mirror the record and resume
+      // state into cookies so the standalone app can import them on first launch.
       function cookieValue(name) {
         const prefix = `${name}=`;
         const item = document.cookie.split('; ').find(value => value.startsWith(prefix));
         return item ? decodeURIComponent(item.slice(prefix.length)) : '';
       }
+      function writeCookie(name, value) {
+        document.cookie = `${name}=${encodeURIComponent(value)}; Max-Age=31536000; Path=/; SameSite=Lax`;
+      }
       function saveBest(value) {
         const best = Math.max(0, Number(value) || 0);
         localStorage.setItem('calabaza-best', String(best));
-        document.cookie = `calabaza-best=${encodeURIComponent(best)}; Max-Age=31536000; Path=/; SameSite=Lax`;
+        writeCookie('calabaza-best', best);
         bestEl.textContent = best;
+      }
+      function parseProgress(raw) {
+        if (!raw) return null;
+        try {
+          const data = JSON.parse(raw);
+          return {
+            score: Math.max(0, Number(data.score) || 0),
+            level: Math.max(1, Math.floor(Number(data.level) || 1)),
+            levelScore: Math.max(0, Number(data.levelScore) || 0),
+            moves: Math.max(0, Math.floor(Number(data.moves) || 0)),
+            savedAt: Number(data.savedAt) || 0
+          };
+        } catch {
+          return null;
+        }
+      }
+      function saveProgress() {
+        const payload = JSON.stringify({ score, level, levelScore, moves, savedAt: Date.now() });
+        localStorage.setItem('calabaza-progress', payload);
+        writeCookie('calabaza-progress', payload);
+      }
+      function loadProgress() {
+        const stored = parseProgress(localStorage.getItem('calabaza-progress') || '');
+        const imported = parseProgress(cookieValue('calabaza-progress'));
+        const chosen = [stored, imported].filter(Boolean).sort((a, b) => (b.savedAt - a.savedAt) || (b.score - a.score))[0];
+        if (!chosen) return;
+        score = chosen.score;
+        level = chosen.level;
+        levelScore = chosen.levelScore;
+        moves = chosen.moves;
+        saveProgress();
       }
       const browserBest = Number(localStorage.getItem('calabaza-best') || 0);
       const importedBest = Number(cookieValue('calabaza-best') || 0);
       saveBest(Math.max(browserBest, importedBest));
+      loadProgress();
 
       function randomKind() { return Math.floor(Math.random() * kinds.length); }
       function hasInitialMatch(r, c, kind) {
@@ -379,6 +416,7 @@
           moves++; render(); await clearMatches();
           const best = Math.max(score, Number(localStorage.getItem('calabaza-best') || 0));
           saveBest(best);
+          saveProgress();
           render();
         }
         locked = false;
@@ -409,7 +447,13 @@
         tap(r, c);
       });
       document.addEventListener('pointercancel', () => { gesture = null; });
-      function reset() { score = 0; level = 1; levelScore = 0; moves = 0; selected = null; locked = false; hintEl.textContent = 'Intercambia dos piezas vecinas. ¡Junta 3 o más!'; makeGrid(); render(); }
+      function reset() {
+        score = 0; level = 1; levelScore = 0; moves = 0; selected = null; locked = false;
+        hintEl.textContent = 'Intercambia dos piezas vecinas. ¡Junta 3 o más!';
+        saveProgress();
+        makeGrid();
+        render();
+      }
       document.getElementById('restart').addEventListener('click', reset);
       soundButton.addEventListener('click', () => {
         musicEnabled = !musicEnabled;
