@@ -117,6 +117,11 @@
     .level-pop { position:absolute; z-index:8; top:50%; left:50%; pointer-events:none; opacity:0; color:#fff7e9; font-size:36px; line-height:1; font-weight:1000; white-space:nowrap; -webkit-text-stroke:1px var(--ink); text-shadow:3px 4px 0 var(--orange); }
     .level-pop.show { animation:level-pop 1.05s cubic-bezier(.2,.8,.25,1) both; }
     @keyframes level-pop { 0% { opacity:0; transform:translate(-50%,-35%) scale(.55) rotate(-6deg); } 18% { opacity:1; transform:translate(-50%,-50%) scale(1.12) rotate(3deg); } 34% { transform:translate(-50%,-50%) scale(1) rotate(0); } 78% { opacity:1; transform:translate(-50%,-78%) scale(1.04); } 100% { opacity:0; transform:translate(-50%,-105%) scale(.92); } }
+    .run-end { position:absolute; inset:0; z-index:9; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:8px; padding:18px 16px; text-align:center; background:#302317d6; color:var(--paper); border-radius:8px; }
+    .run-end[hidden] { display:none; }
+    .run-end h2 { margin:0; font-size:clamp(26px, 8vw, 34px); line-height:1; text-transform:uppercase; }
+    .run-end p { margin:0; font-size:14px; font-weight:800; }
+    .run-end .restart { color:var(--ink); }
     @media (max-height: 700px) { .page { gap:8px; padding-top:max(10px,env(safe-area-inset-top)); } .cats { height:76px; } .cat { transform:scale(.9); } .cat:nth-child(2) { transform:scale(.9); } .hint { display:none; } }
   </style>
 </head>
@@ -131,13 +136,13 @@
     </div>
     <section class="stats" aria-label="Marcador">
       <div class="stat"><label>Puntos</label><strong id="score">0</strong></div>
-      <div class="stat"><label>Nivel</label><strong id="level">1</strong></div>
-      <div class="stat"><label>Turnos</label><strong id="moves">0</strong></div>
+      <div class="stat"><label>Nivel</label><strong id="level">1/8</strong></div>
+      <div class="stat"><label>Turnos</label><strong id="moves">24</strong></div>
       <div class="stat"><label>Récord</label><strong id="best">0</strong></div>
     </section>
-    <section class="board-wrap" aria-label="Tablero de juego"><div class="board-stage"><div id="board" role="grid" aria-label="Jardín de 7 por 7"></div><div class="level-pop" id="levelPop" aria-live="polite" aria-atomic="true">TQADT ❤️</div></div></section>
+    <section class="board-wrap" aria-label="Tablero de juego"><div class="board-stage"><div id="board" role="grid" aria-label="Jardín de 7 por 7"></div><div class="level-pop" id="levelPop" aria-live="polite" aria-atomic="true">TQADT ❤️</div><div class="run-end" id="runEnd" hidden role="dialog" aria-modal="true" aria-labelledby="runEndTitle" aria-describedby="runEndText"><h2 id="runEndTitle"></h2><p id="runEndText"></p><button class="restart" id="runEndAgain" type="button">Otra vez</button></div></div></section>
     <div class="goal"><span>🎃 <b id="goalText">0 / 500</b></span><div class="track"><div class="fill" id="fill"></div></div><span id="goalTarget">500</span></div>
-    <div class="hint">Intercambia dos piezas vecinas. ¡Junta 3 o más!</div>
+    <div class="hint">8 niveles. Un turno por jugada; una cadena te devuelve uno.</div>
     <footer class="bottom"><span>¡A bailar!</span><button class="restart" id="restart">↻ Nueva partida</button></footer>
     <aside class="install-banner" id="installBanner" hidden aria-label="Instalar La Calabaza">
       <p id="installMessage"><strong>¿Juegas a menudo?</strong> Instala La Calabaza para abrirla como una app.</p>
@@ -166,14 +171,20 @@
       const soundIcon = soundButton.querySelector('.sound-icon');
       const soundLabel = document.getElementById('soundLabel');
       const levelPop = document.getElementById('levelPop');
+      const runEnd = document.getElementById('runEnd');
+      const runEndTitle = document.getElementById('runEndTitle');
+      const runEndText = document.getElementById('runEndText');
       const levelChants = ['TQADT ❤️', 'YTQA ❤️', 'APETECE ❤️'];
-      let grid = [], selected = null, score = 0, level = 1, levelScore = 0, moves = 0, locked = false;
+      const MAX_LEVEL = 8;
+      const startHint = '8 niveles. Un turno por jugada; una cadena te devuelve uno.';
+      const goalForLevel = value => 350 + value * 150;
+      const movesForLevel = value => 25 - value;
+      let grid = [], selected = null, score = 0, level = 1, levelScore = 0, moves = movesForLevel(1), locked = false, ended = '';
       let gesture = null, suppressClickUntil = 0;
       let levelCelebrations = 0, celebrationRunning = false;
       let lastLevelChant = -1;
       let musicEnabled = localStorage.getItem('calabaza-music-enabled') !== 'off';
       let musicPausedForBackground = false;
-      const goalForLevel = value => 350 + value * 150;
       function updateMusicButton() {
         soundIcon.textContent = musicEnabled ? '♪' : '♫';
         soundLabel.textContent = musicEnabled ? 'Música activada' : 'Música desactivada';
@@ -246,11 +257,14 @@
         if (!raw) return null;
         try {
           const data = JSON.parse(raw);
+          if (data.campaign !== true) return null;
+          const endedState = data.ended === 'win' || data.ended === 'lose' ? data.ended : '';
           return {
             score: Math.max(0, Number(data.score) || 0),
-            level: Math.max(1, Math.floor(Number(data.level) || 1)),
+            level: Math.min(MAX_LEVEL, Math.max(1, Math.floor(Number(data.level) || 1))),
             levelScore: Math.max(0, Number(data.levelScore) || 0),
             moves: Math.max(0, Math.floor(Number(data.moves) || 0)),
+            ended: endedState,
             savedAt: Number(data.savedAt) || 0
           };
         } catch {
@@ -258,7 +272,7 @@
         }
       }
       function saveProgress() {
-        const payload = JSON.stringify({ score, level, levelScore, moves, savedAt: Date.now() });
+        const payload = JSON.stringify({ campaign: true, score, level, levelScore, moves, ended, savedAt: Date.now() });
         localStorage.setItem('calabaza-progress', payload);
         writeCookie('calabaza-progress', payload);
       }
@@ -271,6 +285,9 @@
         level = chosen.level;
         levelScore = chosen.levelScore;
         moves = chosen.moves;
+        ended = chosen.ended;
+        if (!ended && moves <= 0 && levelScore < goalForLevel(level)) ended = 'lose';
+        if (!ended && level >= MAX_LEVEL && levelScore >= goalForLevel(level)) ended = 'win';
         saveProgress();
       }
       const browserBest = Number(localStorage.getItem('calabaza-best') || 0);
@@ -321,8 +338,11 @@
           });
           boardEl.append(tile);
         }
+        updateStats();
+      }
+      function updateStats() {
         scoreEl.textContent = score;
-        levelEl.textContent = level;
+        levelEl.textContent = `${level}/${MAX_LEVEL}`;
         movesEl.textContent = moves;
         const target = goalForLevel(level);
         goalText.textContent = `${levelScore} / ${target}`;
@@ -369,11 +389,18 @@
           }
           score += matches.size * 10 * chain;
           levelScore += matches.size * 10 * chain;
-          while (levelScore >= goalForLevel(level)) {
+          if (chain > 1) moves++;
+          while (!ended && levelScore >= goalForLevel(level)) {
+            if (level >= MAX_LEVEL) {
+              ended = 'win';
+              hintEl.textContent = '¡Has completado La Calabaza!';
+              showLevelCelebration();
+              break;
+            }
             levelScore -= goalForLevel(level);
             level++;
-            moves = 0;
-            hintEl.textContent = `¡Nivel ${level}! Ahora hacen falta más puntos`;
+            moves = movesForLevel(level);
+            hintEl.textContent = `¡Nivel ${level} de ${MAX_LEVEL}! Turnos recargados`;
             showLevelCelebration();
           }
           renderStats();
@@ -386,25 +413,35 @@
           }
           render(); await wait(140);
         }
-        if (!hasPossibleMove()) {
+        if (!ended && !hasPossibleMove()) {
           makeGrid();
           hintEl.textContent = '¡Nuevo tablero! Ya tienes combinaciones disponibles';
           render();
         }
+        if (!ended && moves <= 0 && levelScore < goalForLevel(level)) {
+          ended = 'lose';
+          hintEl.textContent = 'Se acabaron los turnos';
+        }
       }
       function renderStats() {
-        scoreEl.textContent = score;
-        levelEl.textContent = level;
-        const target = goalForLevel(level);
-        goalText.textContent = `${levelScore} / ${target}`;
-        goalTarget.textContent = target;
-        fillEl.style.width = `${Math.min(100, levelScore / target * 100)}%`;
+        updateStats();
+      }
+      function hideRunEnd() {
+        runEnd.hidden = true;
+      }
+      function showRunEnd() {
+        const won = ended === 'win';
+        runEndTitle.textContent = won ? '¡Lo lograste!' : '¡Casi!';
+        runEndText.textContent = won
+          ? `${score} puntos. Has llegado al final.`
+          : `Nivel ${level} de ${MAX_LEVEL} · ${score} puntos`;
+        runEnd.hidden = false;
       }
       function swap(a, b) {
         const temp = grid[a.r][a.c]; grid[a.r][a.c] = grid[b.r][b.c]; grid[b.r][b.c] = temp;
       }
       async function tap(r, c) {
-        if (locked) return;
+        if (locked || ended) return;
         if (musicEnabled && music.paused) startMusic();
         if (!selected) { selected = { r, c }; render(); return; }
         const a = selected, b = { r, c }; selected = null;
@@ -413,15 +450,17 @@
         locked = true; swap(a, b); render(); await wait(110);
         if (!findMatches().size) { swap(a, b); render(); await wait(120); }
         else {
-          moves++; render(); await clearMatches();
+          moves = Math.max(0, moves - 1); render(); await clearMatches();
           const best = Math.max(score, Number(localStorage.getItem('calabaza-best') || 0));
           saveBest(best);
           saveProgress();
           render();
+          if (ended) showRunEnd();
         }
         locked = false;
       }
       boardEl.addEventListener('pointerdown', event => {
+        if (ended) return;
         const tile = event.target.closest('.tile');
         if (!tile || (event.button !== undefined && event.button !== 0)) return;
         gesture = {
@@ -433,6 +472,7 @@
         };
       });
       document.addEventListener('pointerup', event => {
+        if (ended) { gesture = null; return; }
         if (!gesture || event.pointerId !== gesture.pointerId) return;
         const start = gesture;
         gesture = null;
@@ -448,13 +488,15 @@
       });
       document.addEventListener('pointercancel', () => { gesture = null; });
       function reset() {
-        score = 0; level = 1; levelScore = 0; moves = 0; selected = null; locked = false;
-        hintEl.textContent = 'Intercambia dos piezas vecinas. ¡Junta 3 o más!';
+        score = 0; level = 1; levelScore = 0; moves = movesForLevel(1); selected = null; locked = false; ended = '';
+        hintEl.textContent = startHint;
+        hideRunEnd();
         saveProgress();
         makeGrid();
         render();
       }
       document.getElementById('restart').addEventListener('click', reset);
+      document.getElementById('runEndAgain').addEventListener('click', reset);
       soundButton.addEventListener('click', () => {
         musicEnabled = !musicEnabled;
         localStorage.setItem('calabaza-music-enabled', musicEnabled ? 'on' : 'off');
@@ -468,6 +510,7 @@
       updateMusicButton();
       if (musicEnabled) music.play().then(updateMusicButton).catch(updateMusicButton);
       makeGrid(); render();
+      if (ended) showRunEnd();
     })();
   </script>
   <script>
